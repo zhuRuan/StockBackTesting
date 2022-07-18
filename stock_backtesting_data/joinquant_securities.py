@@ -1,8 +1,10 @@
 import time
 
+import numpy as np
 from jqdatasdk import *
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
+import datetime
 
 '''
 暂时未加入的因子有：
@@ -12,53 +14,84 @@ from datetime import datetime, timedelta
 '''
 
 
+def get_price_liwidis(start, end):
+    start_date = start
+    df = pd.DataFrame()
+    for i in range(0, 10):  # 目前没有需求读取十年以上的数据，故此设定
+
+        end_date = start_date + datetime.timedelta(days=364)
+        if end_date > end:
+            end_date = end
+        print(end_date)
+        df = pd.concat(
+            [df, get_price(all_sec, start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'),
+                           fields=['open', 'close', 'high', 'low', 'volume', 'money',
+                                   'high_limit', 'low_limit', 'avg', 'pre_close'],
+                           fq='pre', skip_paused=False, frequency='daily', panel=False)])
+        if end_date == end:  # 日期遍历结束，循坏结束
+            print('行情数据遍历结束，即将开始遍历因子数据')
+            break
+        start_date = end_date + datetime.timedelta(days=1)  # 年份跨越到下一年
+    return df
+
+
 # 获取所有股票每日因子
-def load_factor_to_every_sec(all_sec, sec_info_list, start, end):
+def load_factor_to_every_sec(all_sec, sec_info_list, trade_day_list):
     start_time3 = time.time()
     df2 = sec_info_list
-    df3 = load_stock_factors(all_sec, start, end, factors_list) #读取因子列表
+    df3 = load_stock_factors(all_sec, factors_list, trade_day_list)  # 读取因子列表
     df2 = pd.merge(df2, df3, on=['datetime', 'code'], how='outer')
-    df2.index = df.iloc[:, 1].values
+    df2.index = df2.iloc[:, 1].values
     del df2['code']
-    df2.to_csv(csv3, mode='a+')
+    df2.to_csv(csv3)
     end_time3 = time.time()
     print("获取factor，并将factor与行情数据合并，使用时间为:{}".format(end_time3 - start_time3))
     return df2
 
 
 # 获取指定日期区间的一支股票的因子值(可以是列表)：
-def load_stock_factors(all_sec, start, end, factors):
+def load_stock_factors(all_sec, factors, trade_day_list):
     start_time4 = time.time()
     df_return = pd.DataFrame()
-    for sec in all_sec:
-        df = get_factor_values(securities=sec, factors=factors, start_date=start, end_date=end)
-        factor_list = []
-        code = sec
-        new_df = pd.DataFrame()
-        ST_or_not = get_extras('is_st', sec, start, end)
-        ST_or_not.columns = ['is_st']
-        for key, value in df.items():
-            factor_list.append(key)
-            value.columns = [key]
-            new_df = pd.concat([new_df, value], axis=1)
-        new_df = pd.concat([new_df, ST_or_not], axis=1)
-        new_df['code'] = code
-        new_df['datetime'] = new_df.index
+    time_cost = 40
+    for day in trade_day_list:
+        start_time5 = datetime.datetime.now()
+        print('正在查询的因子日期:', day, '   |||   完成进度：', np.where(trade_day_list == day)[0][0] + 1 / len(trade_day_list),
+              '   |||   预计剩余时间：',
+              (1 - np.where(trade_day_list == day)[0][0] + 1 / len(trade_day_list)) * len(trade_day_list) * time_cost)
 
+        dict_factors = get_factor_values(securities=all_sec, factors=factors[:35], start_date=day, end_date=day)
+        dict_factors2 = get_factor_values(securities=all_sec, factors=factors[35:], start_date=day, end_date=day)
+        dict_factors.update(dict_factors2)
+        df_st = get_extras('is_st', all_sec, day, day, df=True)
+        new_df = pd.DataFrame()
+        for key, value in dict_factors.items():
+            df2 = pd.DataFrame(value.values.T, index=value.columns, columns=[key])
+            new_df = pd.concat([new_df, df2], axis=1)
+        new_df = pd.concat([new_df, pd.DataFrame(df_st.values.T, index=df_st.columns, columns=['is_st'])], axis=1)
+        new_df['code'] = new_df.index
+        new_df['datetime'] = day
         df_return = pd.concat([df_return, new_df])
+        end_time5 = datetime.datetime.now()
+        time_cost = end_time5 - start_time5
+    print(df_return)
+    df_return['datetime'] = pd.to_datetime(df_return['datetime'])
     end_time4 = time.time()
     print("获取factor，使用时间为：:{}".format(end_time4 - start_time4))
     return df_return
 
 
-# 遍历每个日期，并生成每日可交易标的列表
+# 遍历每个日期，并生成每日可交易标的列表，并写入csv
 def load_stock_list_valid(csv_name):
+    valid_sum = pd.DataFrame(columns=['code', 'Date'])
     for day in trade_days:
         all_sec_valid = list(get_all_securities(types=['stock'], date=day).index)
         all_sec_valid_pd = pd.DataFrame(all_sec_valid)
         all_sec_valid_pd.columns = ['code']
         all_sec_valid_pd['Date'] = day
-        all_sec_valid_pd.to_csv(csv_name, mode='a+')
+        valid_sum = pd.concat([valid_sum, all_sec_valid_pd], ignore_index=True)
+    valid_sum = valid_sum[valid_sum['code'].isin(all_sec)]
+    valid_sum.to_csv(csv_name)
 
 
 if __name__ == '__main__':
@@ -67,12 +100,12 @@ if __name__ == '__main__':
 
     auth('18620290503', 'gxqh2019')
     # 起止日期
-    start = '2020-01-01'
-    end = '2020-12-31'
-    date_start = datetime.strptime(start, '%Y-%m-%d')
-    date_end = datetime.strptime(end, '%Y-%m-%d')
+    start = '2021-1-1'
+    end = '2022-7-31'
+    date_start = datetime.datetime.strptime(start, '%Y-%m-%d')
+    date_end = datetime.datetime.strptime(end, '%Y-%m-%d')
     # 版本号
-    index = 'V1_2020year01-12'
+    index = 'V1_2021-202207year'
     # 写入地址
     csv1 = '../data_stocks/' + index + '_stock_list.csv'
     csv2 = '../data_stocks/' + index + '_stock_valid.csv'
@@ -149,6 +182,8 @@ if __name__ == '__main__':
 
     # 获取并写入csv股票列表
     all_sec = list(get_all_securities(types=['stock']).index)
+    # all_sec = list(get_index_stocks('000300.XSHG')) #+ list(get_index_stocks('399011.XSHE'))
+    # all_sec = ['000568.XSHE', '000858.XSHE', '600519.XSHG', '600809.XSHG', '600702.XSHG', '000799.XSHE', '603919.XSHG', '002304.XSHE', '603589.XSHG', '000596.XSHE', '002077.XSHE', '688234.XSHG', '605111.XSHG', '688262.XSHG', '002079.XSHE', '688689.XSHG', '688037.XSHG', '603290.XSHG', '603893.XSHG', '300458.XSHE', '688711.XSHG', '688521.XSHG', '688595.XSHG', '300831.XSHE', '002371.XSHE', '300623.XSHE', '300046.XSHE', '688110.XSHG', '600460.XSHG', '688270.XSHG', '600360.XSHG', '600584.XSHG', '300604.XSHE', '688385.XSHG', '002049.XSHE', '300672.XSHE', '003026.XSHE', '600171.XSHG', '688167.XSHG', '600483.XSHG', '003816.XSHE', '600023.XSHG', '600167.XSHG', '600905.XSHG', '601016.XSHG', '601619.XSHG', '000875.XSHE', '000883.XSHE', '600157.XSHG', '600795.XSHG', '000027.XSHE', '002015.XSHE', '002608.XSHE', '000155.XSHE', '600032.XSHG', '000591.XSHE', '600098.XSHG', '603693.XSHG', '600780.XSHG']
     all_sef_pd = pd.DataFrame(all_sec)
     all_sef_pd.to_csv(csv1)
     print('股票列表写入完毕')
@@ -162,14 +197,23 @@ if __name__ == '__main__':
 
     # 获得每日行情及当日的因子
     # 行情
-    df = pd.DataFrame(get_price(all_sec, start_date=start, end_date=end,
-                                fields=['open', 'close', 'high', 'low', 'volume', 'money',
-                                        'high_limit', 'low_limit', 'avg', 'pre_close'],
-                                fq='pre', skip_paused=False, frequency='daily', panel=False).values)
+    df = get_price_liwidis(date_start, date_end)
     df.columns = ['datetime', 'code', 'open', 'close', 'high', 'low', 'volume', 'money', 'high_limit', 'low_limit',
                   'avg', 'pre_close']
-    df.fillna(0, inplace=True)
     # 因子
-    df_new = load_factor_to_every_sec(all_sec, df, start, end)
+    df_new = load_factor_to_every_sec(all_sec, df, trade_days)
     end_time = time.time()
     print("一共使用时间为:{}".format(end_time - begin_time))
+
+    print('测试用数据：')
+    pd.set_option('display.max_columns', None)  # 行
+
+    test_list = ['000300.XSHG']
+    df = get_price(test_list, start_date=start, end_date=end,
+                   fields=['open', 'close', 'high', 'low', 'volume', 'money',
+                           'high_limit', 'low_limit', 'avg', 'pre_close'],
+                   fq='pre', skip_paused=False, frequency='daily', panel=False)
+
+    print(df)
+    df = get_factor_values(securities=test_list, factors=factors_list, start_date=start, end_date=start)
+    print(df)
