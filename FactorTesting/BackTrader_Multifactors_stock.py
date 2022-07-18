@@ -1,24 +1,15 @@
 # 加载需要的库
-import multiprocessing
-import time
 import datetime
+import os
+import time
 
+import backtrader as bt
 import joblib
 import numpy as np
 import pandas as pd
-import os
-import math
-from pathos.multiprocessing import ProcessPool as newpool
-from tqdm import tqdm
-
-import backtrader as bt
-from sklearn.linear_model import SGDRegressor
-import pickle
-
-from ast import literal_eval
-import matplotlib.pyplot as plt
 from backtrader.feeds import PandasData
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.linear_model import SGDRegressor
 
 '''
 获得某一股票的全部数据
@@ -159,11 +150,11 @@ class momentum_factor_strategy(bt.Strategy):
             # stocklist_next_next = self.get_valid_list_day(next_next_date)
 
             # 计算本期因子数据df_fac，并清洗
-            df_fac = self.get_df_fac(stocklist=stocklist,factor_list=list_factor, prev=0)
+            df_fac = self.get_df_fac(stocklist=stocklist, factor_list=list_factor, prev=0)
             df_fac = df_fac.dropna(axis=0, how='any')
 
             # 计算上期因子数据df_faxc_p，并清洗
-            df_fac_p = self.get_df_fac(stocklist=stocklist_p,factor_list=list_factor, prev=1 )
+            df_fac_p = self.get_df_fac(stocklist=stocklist_p, factor_list=list_factor, prev=1)
             df_fac_p = df_fac_p.dropna(axis=0, how='any')
 
             # 本期因子排列命名
@@ -188,18 +179,17 @@ class momentum_factor_strategy(bt.Strategy):
             df_fac_p = df_fac_p.drop(diffIndex, errors='ignore')
             df_fac = df_fac.drop(diffIndex, errors='ignore')
             # X_p是上一期的因子值，X是本期因子值，Y是回归目标
-            print(list_factor)
-            X_p = df_fac_p[['momentum_value'] + list_factor].values.reshape(-1,1) #过去因子数据
-            X = df_fac[['momentum_value'] + list_factor].values.reshape(-1,1) #当前因子数据
-            Y = df_fac[['momentum_value']].values.reshape(-1,1)
-            Y_long = df_fac[['Price1M']].values.reshape(-1,1)
+            X_p = df_fac_p[['momentum_value'] + list_factor[:len(list_factor)-1]]  # 过去因子数据
+            X = df_fac[['momentum_value'] + list_factor[:len(list_factor)-1]]  # 当前因子数据
+            Y = df_fac[['momentum_value']]
+            Y_long = df_fac[['Price1M']]
 
             # 将因子值与Y值均进行标准化
-            rbX = RobustScaler()
+            rbX = StandardScaler()
             robust_x_train = rbX.fit_transform(X_p)
             robust_x_predict = rbX.fit_transform(X)
-            rbY = RobustScaler()
-            rbY2 = RobustScaler()
+            rbY = StandardScaler()
+            rbY2 = StandardScaler()
             Y_after_transform = rbY.fit_transform(Y)
             Y_long_after_transform = rbY2.fit_transform(Y_long)
             np.set_printoptions(suppress=True)
@@ -222,14 +212,11 @@ class momentum_factor_strategy(bt.Strategy):
             print(a4)
             print(a5)
 
-
-
             sgdr_pred = sgdr.predict(robust_x_predict)
             sgdr_long_pred = sgdr_long_term_revenue.predict(robust_x_predict)
             print('预测未来的数据逆归一化后:')
             print(sgdr_pred)
             print(sgdr_long_pred)
-
 
             a = rbY.inverse_transform(sgdr_pred.reshape(-1, 1))
             a2 = rbY2.inverse_transform(sgdr_long_pred.reshape(-1, 1))
@@ -310,9 +297,8 @@ class momentum_factor_strategy(bt.Strategy):
                     target_value = position_of_stock * total_value
                     size1 = int(abs(target_value / data.open[0] // 100 * 100))
                     o = self.order_target_size(data=d, target=size1)  # 留百分之五用于支付费用
-                    #记录订单
+                    # 记录订单
                     self.order_list.append(o)
-
 
     # 交易日志
     def notify_order(self, order):
@@ -346,29 +332,25 @@ class momentum_factor_strategy(bt.Strategy):
 
     # 求个股某周期因子平均值，prev为是否为前一周期（0：否，1：是）
     def get_df_fac(self, stocklist, factor_list, prev=0):
-        # 初始化若干个list，用于计算因子值
-        #         #N-个股情绪因子，H-个股热度因子，TR_F-流通股换手率，CM-流通市值，TM-总市值（未使用）
-        #         N,H,TR_F,CM,TM = [],[],[],[],[]
-        #
-
-        # LLIQ流动性因子
-        # LLIQ = []
 
         # 新建df_fac用于存储计算得到的因子值
-        df_fac = pd.DataFrame(columns=['code', 'momentum_value'] + factor_list)
+        column_list = ['code', 'momentum_value'] + factor_list
+        df_fac = pd.DataFrame(columns= column_list)
         for stock in stocklist:
             data = self.getdatabyname(stock)
+            #声明了一个用于存储 一定区间内所有因子的 list 具体结构为 [[],[],...,[]]
             factor_MA_list = []
             for factor in factor_list:
-                factor_list = []
-                factor_MA_list.append(factor_list)
-
+                factor_list2 = []
+                factor_MA_list.append(factor_list2)
             # 获取当期因子值得平均数
             for i in range(0, self.p.interval):
-                for factor_list, factor in zip(factor_MA_list, factor_list):
-                    str = 'factor_list.append(data.' + factor + '[-i - prev * self.p.interval])'
+                for factor_list1, factor in zip(factor_MA_list, factor_list):
+                    str = 'factor_list1.append(data.' + factor + '[-i - prev * self.p.interval])'
                     exec(str)
-
+                #st无法取均值，单独获取
+            factor_MA_list[len(factor_MA_list) - 1] = []
+            factor_MA_list[len(factor_MA_list) - 1].append(data.is_st[0])
             # 计算当期动量
             try:
                 sell_ = data.open[0 - prev * self.p.interval]  # 若prev = 0，则返回当前时点的开盘价
@@ -380,13 +362,13 @@ class momentum_factor_strategy(bt.Strategy):
                 stock_momentum = np.nan
             except ZeroDivisionError:
                 stock_momentum = np.nan
+            #最后返回的具体数值列表
             factor_MA_number_list = []
             factor_MA_number_list.append(stock)
             factor_MA_number_list.append(stock_momentum)
             for factor_list1 in factor_MA_list:
                 factor_MA_number_list.append(np.mean(factor_list1))
-
-            new = pd.DataFrame([factor_MA_number_list], index=[1], columns=['code', 'momentum_value'] + factor_list)
+            new = pd.DataFrame([factor_MA_number_list], index=[1], columns= column_list)
             df_fac = pd.concat([df_fac, new], ignore_index=True)
 
         return df_fac
@@ -400,16 +382,18 @@ class momentum_factor_strategy(bt.Strategy):
         # stocklist = literal_eval(df_day['stocklist'].tolist()[0])
         return stocklist
 
-def get_new_pkl (file_dir, model_for_what):
+
+def get_new_pkl(file_dir, model_for_what):
     file_lists = os.listdir(file_dir)
     file_dict = {}
-    for i in file_lists :  # 遍历所有文件
+    for i in file_lists:  # 遍历所有文件
         if model_for_what in i:
             ctime = os.stat(os.path.join(file_dir, i)).st_ctime
             file_dict[ctime] = i  # 添加创建时间和文件名到字典
     max_ctime = max(file_dict.keys())  # 取值最大的时间
-    print("已读取最新模型参数文件： ",file_dict[max_ctime])
-    return os.path.join(file_dir,file_dict[max_ctime])  # 打印出最新文件名
+    print("已读取最新模型参数文件： ", file_dict[max_ctime])
+    return os.path.join(file_dir, file_dict[max_ctime])  # 打印出最新文件名
+
 
 if __name__ == '__main__':
     ##########################
@@ -419,10 +403,10 @@ if __name__ == '__main__':
     # 实例化模型'
     loss_model = 'squared_error'
 
-    # sgdr = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
-    # sgdr_long_term_revenue = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
-    sgdr = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_squared_error'))
-    sgdr_long_term_revenue = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_long'))
+    sgdr = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
+    sgdr_long_term_revenue = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
+    # sgdr = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_squared_error'))
+    # sgdr_long_term_revenue = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_long'))
 
     # csv文件的版本号
     index = 'V1_2022year07-07'
@@ -459,7 +443,7 @@ if __name__ == '__main__':
     # # 多线程加速
     # pool = multiprocessing.Pool(10)
     for s in stocklist_allA:
-        feed = Addmoredata(dataname=get_stock_data(s), plot=False,
+        feed = Addmoredata(dataname=get_stock_data(s, factor_list=list_factor), plot=False,
                            fromdate=start_date, todate=end_date)
         # pool.apply_async(func=cerebro.adddata,args=[feed,s])
         cerebro.adddata(feed, name=s)
