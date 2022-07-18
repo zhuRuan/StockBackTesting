@@ -1,12 +1,15 @@
 #加载需要的库
 import time
 import datetime
+
+import joblib
 import numpy as np
 import pandas as pd
 import math
 
 import backtrader as bt
 from sklearn.svm import SVR
+import pickle
 
 from ast import literal_eval
 from backtrader.feeds import PandasData
@@ -73,7 +76,7 @@ class momentum_factor_strategy(bt.Strategy):
     def __init__(self):
 
         #已清洗过的每日可用股票列表
-        self.df_byday = pd.read_csv(r'D:\Ruiwen\PythonProject\backtrader-master\data_futures\6-all_futures_valid.csv')
+        self.df_byday = pd.read_csv(r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\2_stock_valid.csv')
         #交易天数，用于判断是否交易
         self.bar_num = 0
         #上次交易股票的列表
@@ -357,14 +360,16 @@ class momentum_factor_strategy(bt.Strategy):
 ##########################
 #实例化支持向量回归（SVR）模型
 svr = SVR()
+# with open('D:/python/workspace/clf.pickle','rb') as f:
+#     svr = pickle.load(f)#从f文件中提取出模型赋给clf2
 
 #获取已清洗好的全A股列表
-stocklist_allA = pd.read_csv(r'D:\Ruiwen\PythonProject\backtrader-master\data_futures\6-future_list_all.csv')
+stocklist_allA = pd.read_csv(r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\2_stock_list.csv')
 stocklist_allA.fillna(0)
 stocklist_allA = stocklist_allA['0'].tolist()
 
 #获取已清洗好的全A股所有数据
-df_all = pd.read_csv(r'D:\Ruiwen\PythonProject\backtrader-master\data_futures\6.csv')
+df_all = pd.read_csv(r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\2_stock_data.csv')
 df_all['datetime'] = pd.to_datetime(df_all['datetime'],format='%Y-%m-%d',errors='coerce')
 df_all.columns = [ 'code','datetime','open', 'close', 'high', 'low', 'volume', 'money', 'high_limit', 'low_limit',
                   'avg', 'pre_close', 'open_interest']
@@ -403,6 +408,9 @@ cerebro.addanalyzer(
 cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
 thestrats = cerebro.run()
 thestrat = thestrats[0]
+#保存模型
+joblib.dump(svr, "../workplace/svr_2022_0701.pkl")
+
 # 输出分析器结果字典
 print("???")
 print('Sharpe Ratio:', thestrat.analyzers.sharp_ratio.get_analysis())
