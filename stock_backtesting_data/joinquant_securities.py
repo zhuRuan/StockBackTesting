@@ -1,10 +1,9 @@
+import datetime
 import time
 
 import numpy as np
-from jqdatasdk import *
 import pandas as pd
-from datetime import timedelta
-import datetime
+from jqdatasdk import *
 
 '''
 暂时未加入的因子有：
@@ -15,23 +14,24 @@ import datetime
 
 
 def get_price_liwidis(start, end):
-    start_date = start
+    start_date0 = start
     df = pd.DataFrame()
     for i in range(0, 10):  # 目前没有需求读取十年以上的数据，故此设定
 
-        end_date = start_date + datetime.timedelta(days=364)
-        if end_date > end:
-            end_date = end
-        print(end_date)
+        end_date0 = start_date0 + datetime.timedelta(days=364)
+        if end_date0 > end:
+            end_date0 = end
+        print('当前访问的数据截止日期为： ', end_date0)
         df = pd.concat(
-            [df, get_price(all_sec, start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'),
-                           fields=['open', 'close', 'high', 'low', 'volume', 'money',
-                                   'high_limit', 'low_limit', 'avg', 'pre_close'],
-                           fq='pre', skip_paused=False, frequency='daily', panel=False)])
-        if end_date == end:  # 日期遍历结束，循坏结束
+            [df,
+             get_price(all_sec, start_date=start_date0.strftime('%Y-%m-%d'), end_date=end_date0.strftime('%Y-%m-%d'),
+                       fields=['open', 'close', 'high', 'low', 'volume', 'money',
+                               'high_limit', 'low_limit', 'avg', 'pre_close'],
+                       fq='pre', skip_paused=False, frequency='daily', panel=False)])
+        if end_date0 == end:  # 日期遍历结束，循坏结束
             print('行情数据遍历结束，即将开始遍历因子数据')
             break
-        start_date = end_date + datetime.timedelta(days=1)  # 年份跨越到下一年
+        start_date0 = end_date0 + datetime.timedelta(days=1)  # 年份跨越到下一年
     return df
 
 
@@ -56,9 +56,10 @@ def load_stock_factors(all_sec, factors, trade_day_list):
     time_cost = 40
     for day in trade_day_list:
         start_time5 = datetime.datetime.now()
-        print('正在查询的因子日期:', day, '   |||   完成进度：', np.where(trade_day_list == day)[0][0] + 1 / len(trade_day_list),
-              '   |||   预计剩余时间：',
-              (1 - np.where(trade_day_list == day)[0][0] + 1 / len(trade_day_list)) * len(trade_day_list) * time_cost)
+        print('正在查询的因子日期:', day,
+              '   |||   完成进度：{:.2%}'.format((np.where(trade_day_list == day)[0][0] + 1) / len(trade_day_list)),
+              '   |||   预计剩余时间：', (1 - (np.where(trade_day_list == day)[0][0]) / len(trade_day_list)) * len(
+                trade_day_list) * time_cost)
 
         dict_factors = get_factor_values(securities=all_sec, factors=factors[:35], start_date=day, end_date=day)
         dict_factors2 = get_factor_values(securities=all_sec, factors=factors[35:], start_date=day, end_date=day)
@@ -74,10 +75,10 @@ def load_stock_factors(all_sec, factors, trade_day_list):
         df_return = pd.concat([df_return, new_df])
         end_time5 = datetime.datetime.now()
         time_cost = end_time5 - start_time5
-    print(df_return)
-    df_return['datetime'] = pd.to_datetime(df_return['datetime'])
-    end_time4 = time.time()
-    print("获取factor，使用时间为：:{}".format(end_time4 - start_time4))
+        print(df_return)
+        df_return['datetime'] = pd.to_datetime(df_return['datetime'])
+        end_time4 = time.time()
+        print("获取factor，使用时间为：:{}".format(end_time4 - start_time4))
     return df_return
 
 
@@ -100,12 +101,12 @@ if __name__ == '__main__':
 
     auth('18620290503', 'gxqh2019')
     # 起止日期
-    start = '2021-1-1'
-    end = '2022-7-31'
+    start = '2021-4-1'
+    end = '2022-8-4'
     date_start = datetime.datetime.strptime(start, '%Y-%m-%d')
     date_end = datetime.datetime.strptime(end, '%Y-%m-%d')
     # 版本号
-    index = 'V1_2021-202207year'
+    index = 'V1_202104-202207year'
     # 写入地址
     csv1 = '../data_stocks/' + index + '_stock_list.csv'
     csv2 = '../data_stocks/' + index + '_stock_valid.csv'
