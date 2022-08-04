@@ -1,5 +1,6 @@
 import datetime
 import time
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -54,31 +55,37 @@ def load_stock_factors(all_sec, factors, trade_day_list):
     start_time4 = time.time()
     df_return = pd.DataFrame()
     time_cost = 40
-    for day in trade_day_list:
-        start_time5 = datetime.datetime.now()
-        print('正在查询的因子日期:', day,
-              '   |||   完成进度：{:.2%}'.format((np.where(trade_day_list == day)[0][0] + 1) / len(trade_day_list)),
-              '   |||   预计剩余时间：', (1 - (np.where(trade_day_list == day)[0][0]) / len(trade_day_list)) * len(
-                trade_day_list) * time_cost)
+    try:
+        for day in trade_day_list:
+            start_time5 = datetime.datetime.now()
 
-        dict_factors = get_factor_values(securities=all_sec, factors=factors[:35], start_date=day, end_date=day)
-        dict_factors2 = get_factor_values(securities=all_sec, factors=factors[35:], start_date=day, end_date=day)
-        dict_factors.update(dict_factors2)
-        df_st = get_extras('is_st', all_sec, day, day, df=True)
-        new_df = pd.DataFrame()
-        for key, value in dict_factors.items():
-            df2 = pd.DataFrame(value.values.T, index=value.columns, columns=[key])
-            new_df = pd.concat([new_df, df2], axis=1)
-        new_df = pd.concat([new_df, pd.DataFrame(df_st.values.T, index=df_st.columns, columns=['is_st'])], axis=1)
-        new_df['code'] = new_df.index
-        new_df['datetime'] = day
-        df_return = pd.concat([df_return, new_df])
-        end_time5 = datetime.datetime.now()
-        time_cost = end_time5 - start_time5
-        print(df_return)
-        df_return['datetime'] = pd.to_datetime(df_return['datetime'])
-        end_time4 = time.time()
-        print("获取factor，使用时间为：:{}".format(end_time4 - start_time4))
+            print('正在查询的因子日期:', day,
+                  '   |||   完成进度：{:.2%}'.format((np.where(trade_day_list == day)[0][0] + 1) / len(trade_day_list)),
+                  '   |||   预计剩余时间：', (1 - (np.where(trade_day_list == day)[0][0]) / len(trade_day_list)) * len(
+                    trade_day_list) * time_cost)
+
+            dict_factors = get_factor_values(securities=all_sec, factors=factors[:35], start_date=day, end_date=day)
+            dict_factors2 = get_factor_values(securities=all_sec, factors=factors[35:], start_date=day, end_date=day)
+            dict_factors.update(dict_factors2)
+            df_st = get_extras('is_st', all_sec, day, day, df=True)
+            new_df = pd.DataFrame()
+            for key, value in dict_factors.items():
+                df2 = pd.DataFrame(value.values.T, index=value.columns, columns=[key])
+                new_df = pd.concat([new_df, df2], axis=1)
+            new_df = pd.concat([new_df, pd.DataFrame(df_st.values.T, index=df_st.columns, columns=['is_st'])], axis=1)
+            new_df['code'] = new_df.index
+            new_df['datetime'] = day
+            df_return = pd.concat([df_return, new_df])
+            end_time5 = datetime.datetime.now()
+            time_cost = end_time5 - start_time5
+    except Exception as ex:
+        print("获取过程中出现错误:%s"%ex)
+        traceback.print_exc()
+
+    print(df_return)
+    df_return['datetime'] = pd.to_datetime(df_return['datetime'])
+    end_time4 = time.time()
+    print("获取factor，使用时间为：:{}".format(end_time4 - start_time4))
     return df_return
 
 
