@@ -53,15 +53,15 @@ def load_factor_to_every_sec(all_sec, sec_info_list, trade_day_list, factors_lis
 def load_stock_factors(all_sec, factors, trade_day_list):
     start_time4 = time.time()
     df_return = pd.DataFrame()
-    time_cost = 40
+    time_cost = datetime.datetime(second=50)
     try:
         for day in tqdm(trade_day_list):
             start_time5 = datetime.datetime.now()
 
-            print('正在查询的因子日期:', day,
-                  '   |||   完成进度：{:.2%}'.format((np.where(trade_day_list == day)[0][0] + 1) / len(trade_day_list)),
-                  '   |||   预计剩余时间：', (1 - (np.where(trade_day_list == day)[0][0]) / len(trade_day_list)) * len(
-                    trade_day_list) * time_cost)
+            # print('正在查询的因子日期:', day,
+            #       '   |||   完成进度：{:.2%}'.format((np.where(trade_day_list == day)[0][0] + 1) / len(trade_day_list)),
+            #       '   |||   预计剩余时间：', (1 - (np.where(trade_day_list == day)[0][0]) / len(trade_day_list)) * len(
+            #         trade_day_list) * time_cost)
 
             dict_factors = get_factor_values(securities=all_sec, factors=factors[:35], start_date=day, end_date=day)
             dict_factors2 = get_factor_values(securities=all_sec, factors=factors[35:], start_date=day, end_date=day)
@@ -115,8 +115,8 @@ def get_base_data(start, end, stock_list):
 
     auth('18620290503', 'gxqh2019')
     # 起止日期
-    start = '2022-6-1'
-    end = '2022-9-13'
+    # start = '2022-6-1'
+    # end = '2022-9-13'
     date_start = datetime.datetime.strptime(start, '%Y-%m-%d')
     date_end = datetime.datetime.strptime(end, '%Y-%m-%d')
     # 版本号

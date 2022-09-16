@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from data.data_size_handle import reduce_mem_usage
 
-def stock_classify (csv):
+def stock_classify (csv, index_of_csv):
     auth('18620290503', 'gxqh2019')
     # df=pd.read_csv('../data_stocks/V1_202206-0913year_stocks_and_industry_data.csv')
     df = pd.read_csv(csv)
@@ -30,7 +30,6 @@ def stock_classify (csv):
         df = pd.concat([df,df1],axis=1)
         dict={}
 
-    index = 'V1_202206-0913year'
-    final = '../data_stocks/' +index+ '_final_data.csv'
+    final = '../data_stocks/' +index_of_csv+ '_final_data.csv'
     df.to_csv(final)
     return final
