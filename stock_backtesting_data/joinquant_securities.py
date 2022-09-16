@@ -1,20 +1,19 @@
-import datetime
 import time
 import traceback
+import datetime
 
 import numpy as np
-import pandas as pd
 from jqdatasdk import *
-
+from tqdm import tqdm
+import pandas as pd
 '''
 暂时未加入的因子有：
 2022-07-16
 动量因子V2：'MAC5','MAC10','MAC10','MAC20','MAC60','MAC120'
-
 '''
 
 
-def get_price_liwidis(start, end):
+def get_price_liwidis(start, end, all_sec):
     start_date0 = start
     df = pd.DataFrame()
     for i in range(0, 10):  # 目前没有需求读取十年以上的数据，故此设定
@@ -37,7 +36,7 @@ def get_price_liwidis(start, end):
 
 
 # 获取所有股票每日因子
-def load_factor_to_every_sec(all_sec, sec_info_list, trade_day_list):
+def load_factor_to_every_sec(all_sec, sec_info_list, trade_day_list, factors_list, csv3):
     start_time3 = time.time()
     df2 = sec_info_list
     df3 = load_stock_factors(all_sec, factors_list, trade_day_list)  # 读取因子列表
@@ -56,7 +55,7 @@ def load_stock_factors(all_sec, factors, trade_day_list):
     df_return = pd.DataFrame()
     time_cost = 40
     try:
-        for day in trade_day_list:
+        for day in tqdm(trade_day_list):
             start_time5 = datetime.datetime.now()
 
             print('正在查询的因子日期:', day,
@@ -79,7 +78,7 @@ def load_stock_factors(all_sec, factors, trade_day_list):
             end_time5 = datetime.datetime.now()
             time_cost = end_time5 - start_time5
     except Exception as ex:
-        print("获取过程中出现错误:%s"%ex)
+        print("获取过程中出现错误:%s" % ex)
         traceback.print_exc()
 
     print(df_return)
@@ -90,7 +89,7 @@ def load_stock_factors(all_sec, factors, trade_day_list):
 
 
 # 遍历每个日期，并生成每日可交易标的列表，并写入csv
-def load_stock_list_valid(csv_name):
+def load_stock_list_valid(csv_name, trade_days, all_sec):
     valid_sum = pd.DataFrame(columns=['code', 'Date'])
     for day in trade_days:
         all_sec_valid = list(get_all_securities(types=['stock'], date=day).index)
@@ -101,19 +100,27 @@ def load_stock_list_valid(csv_name):
     valid_sum = valid_sum[valid_sum['code'].isin(all_sec)]
     valid_sum.to_csv(csv_name)
 
-
-if __name__ == '__main__':
+'''
+start:
+开始日期，格式为'YYYY-M-D'
+end:
+结束日期，格式为'YYY-M-D'
+stock_list: 
+'all_sec'代表所有股票；
+其他情况需传入完整股票名称list
+'''
+def get_base_data(start, end, stock_list):
     # 主程序开始
     begin_time = time.time()
 
     auth('18620290503', 'gxqh2019')
     # 起止日期
-    start = '2021-4-1'
-    end = '2022-8-4'
+    start = '2022-6-1'
+    end = '2022-9-13'
     date_start = datetime.datetime.strptime(start, '%Y-%m-%d')
     date_end = datetime.datetime.strptime(end, '%Y-%m-%d')
     # 版本号
-    index = 'V1_202104-202207year'
+    index = 'V1_' + start + '-' + end
     # 写入地址
     csv1 = '../data_stocks/' + index + '_stock_list.csv'
     csv2 = '../data_stocks/' + index + '_stock_valid.csv'
@@ -189,7 +196,11 @@ if __name__ == '__main__':
     print('当前账户余额：' + feedback)
 
     # 获取并写入csv股票列表
-    all_sec = list(get_all_securities(types=['stock']).index)
+    all_sec = stock_list
+    if stock_list == 'all_sec':
+        # 若传参为高级参数
+        all_sec = list(get_all_securities(types=['stock']).index)
+
     # all_sec = list(get_index_stocks('000300.XSHG')) #+ list(get_index_stocks('399011.XSHE'))
     # all_sec = ['000568.XSHE', '000858.XSHE', '600519.XSHG', '600809.XSHG', '600702.XSHG', '000799.XSHE', '603919.XSHG', '002304.XSHE', '603589.XSHG', '000596.XSHE', '002077.XSHE', '688234.XSHG', '605111.XSHG', '688262.XSHG', '002079.XSHE', '688689.XSHG', '688037.XSHG', '603290.XSHG', '603893.XSHG', '300458.XSHE', '688711.XSHG', '688521.XSHG', '688595.XSHG', '300831.XSHE', '002371.XSHE', '300623.XSHE', '300046.XSHE', '688110.XSHG', '600460.XSHG', '688270.XSHG', '600360.XSHG', '600584.XSHG', '300604.XSHE', '688385.XSHG', '002049.XSHE', '300672.XSHE', '003026.XSHE', '600171.XSHG', '688167.XSHG', '600483.XSHG', '003816.XSHE', '600023.XSHG', '600167.XSHG', '600905.XSHG', '601016.XSHG', '601619.XSHG', '000875.XSHE', '000883.XSHE', '600157.XSHG', '600795.XSHG', '000027.XSHE', '002015.XSHE', '002608.XSHE', '000155.XSHE', '600032.XSHG', '000591.XSHE', '600098.XSHG', '603693.XSHG', '600780.XSHG']
     all_sef_pd = pd.DataFrame(all_sec)
@@ -200,16 +211,16 @@ if __name__ == '__main__':
     trade_days = get_trade_days(start_date=start, end_date=end)
 
     # 获得每日可用股票
-    load_stock_list_valid(csv2)
+    load_stock_list_valid(csv2, trade_days, all_sec)
     print('每日可用股票列表写入完毕')
 
     # 获得每日行情及当日的因子
     # 行情
-    df = get_price_liwidis(date_start, date_end)
+    df = get_price_liwidis(date_start, date_end, all_sec)
     df.columns = ['datetime', 'code', 'open', 'close', 'high', 'low', 'volume', 'money', 'high_limit', 'low_limit',
                   'avg', 'pre_close']
     # 因子
-    df_new = load_factor_to_every_sec(all_sec, df, trade_days)
+    df_new = load_factor_to_every_sec(all_sec, df, trade_days, factors_list, csv3)
     end_time = time.time()
     print("一共使用时间为:{}".format(end_time - begin_time))
 
@@ -225,3 +236,5 @@ if __name__ == '__main__':
     print(df)
     df = get_factor_values(securities=test_list, factors=factors_list, start_date=start, end_date=start)
     print(df)
+
+    return csv3

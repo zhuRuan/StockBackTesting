@@ -1,33 +1,82 @@
 # 加载需要的库
 import datetime
+import multiprocessing
 import os
+import sys
 import time
-
+from multiprocessing.managers import BaseManager
+from tqdm import tqdm
 import backtrader as bt
-import joblib
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from backtrader.feeds import PandasData
-from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler
+from keras import backend as K
+from keras.models import load_model
 from sklearn.linear_model import SGDRegressor
+from sklearn.preprocessing import MinMaxScaler
+
+from stock_backtesting_data.handle_df import mad
 
 '''
 获得某一股票的全部数据
 输入：code--该股票对应的ts_code
 输出：df_stock--该股票的全部数据，存为df
 '''
-def treat_df(df):
 
+
+def treat_df(df3):
+    # 命名
+    columns = df3.columns
+    # 缺失值处理
+    df = df3[~df3['pre_close'].isin([0, np.NAN])]
+    df = df[~df['close'].isin([0, np.NAN])]
+    df = df[~df['datetime'].isin([np.NAN])]
+    df = df[df['pre_close'] > 0]
+    df['is_st']
+    # # 计算收益率
+    # df['earn_rate'] = df.apply(lambda x: x['close'] / x['pre_close'] - 1, axis=1)
     # df = df[df['earn_rate'] < 0.1]
     # df = df[df['earn_rate'] > -0.1]
-    df = df[df.columns[2:]]
+    df = df.drop(df.columns[[0, 1]], axis=1)
+    print(df)
     print(df.columns.to_list())
-    for column in df.columns.to_list()[12:len(df.columns.to_list())]:
-        df.loc[df[column].isin([np.nan]).index.to_list(),column] = df[column].mean()
+    df.columns = ['code'] + df.columns.to_list()[1:]
+    df_list = []
+    # 多线程加速
+    pool = multiprocessing.Pool()
+    for i in tqdm(range(1,9)):
+        index_1 = (i-1)*df.shape[0]//9
+        index_2 = i*df.shape[0]//9
+        df_list.append(pool.apply_async(func=fill_mean_into_nan, args=(df.iloc[index_1:index_2,:],)))
+    df_list.append(pool.apply_async(func=fill_mean_into_nan, args=(df.iloc[8*df.shape[0]//9:,:],)))
+    pool.close()
+    pool.join()
+    res = pd.DataFrame()
+    for result in tqdm(df_list):
+        part_res = result.get()
+        print(part_res)
+        res = pd.concat([res,part_res],axis=0)
+    print(res)
+    print('数据预处理完毕')
+    # for column in df.columns.to_list()[12:]:
+    #     print(df[df[column].isin([np.nan])][column])
+    #     df[df[column].isin([np.nan])][column] = df[column].mean()
+    #     df[column] = mad(df[column])
+        # print(df[df[column].isin([np.nan])][column])
+    # print(columns_list)
+    return res
 
+
+def fill_mean_into_nan(df):
+    for column in df.columns.to_list()[12:]:
+        # print(df[df[column].isin([np.nan])][column])
+        df[df[column].isin([np.nan])][column] = df[column].mean()
+        df[column] = mad(df[column])
     return df
 
-def get_stock_data(code, factor_list):
+
+def get_stock_data(code, factor_list, df_all):
     df_stock = df_all[df_all['code'] == code]
     df_stock = df_stock[['datetime', 'open', 'close', 'high', 'low', 'volume', 'money', 'high_limit',
                          'low_limit', 'avg', 'pre_close'] + factor_list]
@@ -35,14 +84,22 @@ def get_stock_data(code, factor_list):
     df_stock = df_stock.sort_index()
     return df_stock
 
-def add_parameters (list_factor):
+
+@tf.autograph.experimental.do_not_convert
+def r_square_oos(y_true, y_pred):
+    SSR = K.sum(K.square(y_true - y_pred))
+    SST = K.sum(K.square(y_true - K.mean(y_true)))
+    return SSR / SST
+
+
+def add_parameters(list_factor):
     lines = 'lines = ('
     params = 'params = ('
     i = 6
     for factor in list_factor:
         lines = lines + '\'' + str(factor) + '\','
         params = params + '(\'' + factor + '\',' + str(i) + '),'
-        i +=1
+        i += 1
     lines = lines + ')'
     params = params + ')'
     return lines, params
@@ -286,7 +343,7 @@ class momentum_factor_strategy(bt.Strategy):
         self.log('当前总收益率 {:.2%}'.format((self.broker.getvalue() / startcash) - 1))
         # 计算当日是否调仓
         if self.bar_num % self.p.interval == 0 and self.bar_num > 1 * self.p.interval and self.datas[0].datetime.date(
-                0) < datetime.date(2022, 7, 28):
+                0) < datetime.date(2022, 9, 12):
             # 得到当天的时间
             current_date = self.datas[0].datetime.date(0)
             print("交易日日期:{}".format(str(self.datas[0].datetime.date(0))))
@@ -306,6 +363,7 @@ class momentum_factor_strategy(bt.Strategy):
 
             # 计算本期因子数据df_fac，并清洗
             df_fac = self.get_df_fac(stocklist=stocklist, factor_list=list_factor, prev=0)
+            print(df_fac)
             df_fac = df_fac.dropna(axis=0, how='any')
 
             # 计算上期因子数据df_faxc_p，并清洗
@@ -313,17 +371,20 @@ class momentum_factor_strategy(bt.Strategy):
             df_fac_p = df_fac_p.dropna(axis=0, how='any')
 
             # 本期因子排列命名
-            df_fac.columns = ['code', 'momentum_value'] + list_factor
+            df_fac.columns = ['code', 'momentum_value', 'pre_close'] + list_factor
             df_fac.index = df_fac.code.values
 
             # 上期因子排列命名
-            df_fac_p.columns = ['code', 'momentum_value'] + list_factor
+            df_fac_p.columns = ['code', 'momentum_value', 'pre_close'] + list_factor
 
             df_fac_p.index = df_fac_p.code.values
 
             # 舍弃X_p和Y中不同的index（股票代码）
             # 先去除X_p比Y多的index
             diffIndex = df_fac_p.index.difference(df_fac.index)
+            print(stocklist)
+            print(df_fac_p)
+            print(df_fac)
             # 删除整行
             df_fac_p = df_fac_p.drop(diffIndex, errors='ignore')
             df_fac = df_fac.drop(diffIndex, errors='ignore')
@@ -334,39 +395,45 @@ class momentum_factor_strategy(bt.Strategy):
             df_fac_p = df_fac_p.drop(diffIndex, errors='ignore')
             df_fac = df_fac.drop(diffIndex, errors='ignore')
             # X_p是上一期的因子值，X是本期因子值，Y是回归目标
-            X_p = df_fac_p[['momentum_value'] + list_factor[:len(list_factor)-1]]  # 过去因子数据
-            X = df_fac[['momentum_value'] + list_factor[:len(list_factor)-1]]  # 当前因子数据
+            X_p = df_fac_p[['momentum_value','pre_close'] + list_factor[:len(list_factor) - 1]]  # 过去因子数据
+            X = df_fac[['momentum_value','pre_close'] + list_factor[:len(list_factor) - 1]]  # 当前因子数据
             Y = df_fac[['momentum_value']]
             Y_long = df_fac[['Price1M']]
 
             # 将因子值与Y值均进行标准化
-            rbX = MinMaxScaler(feature_range=(0,1))
+            rbX = MinMaxScaler(feature_range=(0, 1))
             robust_x_train = rbX.fit_transform(X_p)
             robust_x_predict = rbX.transform(X)
-            rbY = MinMaxScaler(feature_range=(0,1))
-            rbY2 = MinMaxScaler(feature_range=(0,1))
+            rbY = MinMaxScaler(feature_range=(0, 1))
+            rbY2 = MinMaxScaler(feature_range=(0, 1))
             Y_after_transform = rbY.fit_transform(Y)
             Y_long_after_transform = rbY2.fit_transform(Y_long)
             np.set_printoptions(suppress=True)
-            # 用上期因子值与本期回报率进行训练、
-            sgdr.partial_fit(X=robust_x_train, y=(Y_after_transform))
-            sgdr_long_term_revenue.partial_fit(X=robust_x_train, y=(Y_long_after_transform))
 
+            # 转化为三维数据
+            # reshape input to be 3D [samples, timesteps, features]
+            train_X = robust_x_train.reshape((robust_x_train.shape[0], 1, robust_x_train.shape[1]))
+            test_X = robust_x_predict.reshape((robust_x_predict.shape[0], 1, robust_x_predict.shape[1]))
 
-            sgdr_pred = sgdr.predict(robust_x_predict)
-            sgdr_long_pred = sgdr_long_term_revenue.predict(robust_x_predict)
+            train_y = Y_after_transform.flatten()
 
+            # # 用上期因子值与本期回报率进行训练、
+            LSTM.fit(x=train_X, y=train_y, batch_size=5000, epochs=50,verbose=10000)
+            # sgdr_long_term_revenue.partial_fit(X=robust_x_train, y=(Y_long_after_transform))
 
-            a = rbY.inverse_transform(sgdr_pred.reshape(-1,1))
-            a2 = rbY2.inverse_transform(sgdr_long_pred.reshape(-1,1))
+            LSTM_pred = LSTM.predict(test_X)
+            # sgdr_long_pred = sgdr_long_term_revenue.predict(robust_x_predict)
+
+            a = rbY.inverse_transform(LSTM_pred.reshape(-1, 1))
+            # a2 = rbY2.inverse_transform(sgdr_long_pred.reshape(-1,1))
             df_fac['pred'] = a
-            df_fac['pred_long'] = a2
+            # df_fac['pred_long'] = a2
 
-            #找出所有st股
-            st_list = df_fac[df_fac['is_st']==True]['code'].to_list()
+            # 找出所有st股
+            st_list = df_fac[df_fac['is_st'] == True]['code'].to_list()
 
-            #找出所有涨停股票
-            trading_list = df_fac[df_fac['momentum_value']>=9.95]['code'].to_list()
+            # 找出所有涨停股票
+            trading_list = df_fac[df_fac['momentum_value'] >= 9.95]['code'].to_list()
 
             # 按照预测得到的下期收益进行排序
             df_fac.sort_values(by="pred", inplace=True, ascending=False)
@@ -384,7 +451,7 @@ class momentum_factor_strategy(bt.Strategy):
             position_list = []
             sum_yield_total = np.sum(long_list_yield)
             for stock_yield, stock in zip(long_list_yield, long_list):
-                percent =  (0.95 * stock_yield / sum_yield_total )  # 想要设定的仓位
+                percent = (0.95 * 0.03)  # 想要设定的仓位
                 stock_position = self.getposition(data=stock).size
                 portfolio_value = self.broker.getvalue()
                 percent_now = stock_position / portfolio_value  # 获取当前的仓位
@@ -393,7 +460,6 @@ class momentum_factor_strategy(bt.Strategy):
                 if stock in st_list or stock in trading_list:
                     percent = 0
                 position_list.append(percent)
-
 
             # 取消以往所下订单（已成交的不会起作用）
             for o in self.order_list:
@@ -404,7 +470,7 @@ class momentum_factor_strategy(bt.Strategy):
             # 若上期交易股票未出现在本期交易列表中，则平仓
             # 即将退市的股票也清仓
             for i in self.stock_position_list:
-                if i not in sort_list_pos : #i not in positive_long_term_list and i not in positive_long_term_list_next):
+                if i not in sort_list_pos:  # i not in positive_long_term_list and i not in positive_long_term_list_next):
                     self.stock_position_list.remove(i)
                     d = self.getdatabyname(i)
                     if self.getposition(d).size > 0:
@@ -468,21 +534,27 @@ class momentum_factor_strategy(bt.Strategy):
     def get_df_fac(self, stocklist, factor_list, prev=0):
 
         # 新建df_fac用于存储计算得到的因子值
+        factor_list = ['pre_close'] + factor_list
         column_list = ['code', 'momentum_value'] + factor_list
-        df_fac = pd.DataFrame(columns= column_list)
+        df_fac = pd.DataFrame(columns=column_list)
+
         for stock in stocklist:
             data = self.getdatabyname(stock)
-            #声明了一个用于存储 一定区间内所有因子的 list 具体结构为 [[],[],...,[]]
+            # 声明了一个用于存储 一定区间内所有因子的 list 具体结构为 [[],[],...,[]]
             factor_MA_list = []
-            for factor in factor_list:
+            factor_list_copy = factor_list.copy()
+            for factor in factor_list_copy:
                 factor_list2 = []
                 factor_MA_list.append(factor_list2)
             # 获取当期因子值得平均数
+            factor_list_copy.remove('is_st')
+            column_list = ['code', 'momentum_value'] + factor_list_copy
             for i in range(0, self.p.interval):
-                for factor_list1, factor in zip(factor_MA_list, factor_list):
-                    str = 'factor_list1.append(data.' + factor + '[-i - prev * self.p.interval])'
-                    exec(str)
-                #st无法取均值，单独获取
+                for factor_list1, factor in zip(factor_MA_list[:len(factor_MA_list)-1], factor_list_copy):
+                    if factor != 'is_st':
+                        str = 'factor_list1.append(data.' + factor + '[-i - prev * self.p.interval])'
+                        exec(str)
+            # st无法取均值，单独获取
             factor_MA_list[len(factor_MA_list) - 1] = []
             factor_MA_list[len(factor_MA_list) - 1].append(data.is_st[0])
             # 计算当期动量
@@ -496,15 +568,17 @@ class momentum_factor_strategy(bt.Strategy):
                 stock_momentum = np.nan
             except ZeroDivisionError:
                 stock_momentum = np.nan
-            #最后返回的具体数值列表
+            # 最后返回的具体数值列表
             factor_MA_number_list = []
             factor_MA_number_list.append(stock)
             factor_MA_number_list.append(stock_momentum)
             for factor_list1 in factor_MA_list:
                 factor_MA_number_list.append(np.mean(factor_list1))
-            new = pd.DataFrame([factor_MA_number_list], index=[1], columns= column_list)
+            new = pd.DataFrame([factor_MA_number_list], index=[1], columns=column_list+['is_st'])
             df_fac = pd.concat([df_fac, new], ignore_index=True)
-
+        # # print(df_fac["is_st"])
+        # for column in df_fac.columns.to_list():
+        #     print(df_fac[df_fac[column].isin([np.nan])][column])
         return df_fac
 
     # 获取当日可行股票池
@@ -525,8 +599,21 @@ def get_new_pkl(file_dir, model_for_what):
             ctime = os.stat(os.path.join(file_dir, i)).st_ctime
             file_dict[ctime] = i  # 添加创建时间和文件名到字典
     max_ctime = max(file_dict.keys())  # 取值最大的时间
-    print("已读取最新模型参数文件： ", file_dict[max_ctime])# 打印出最新文件名
+    print("已读取最新模型参数文件： ", file_dict[max_ctime])  # 打印出最新文件名
     return os.path.join(file_dir, file_dict[max_ctime])
+
+
+def add_data(stock_list, list_factor, start_date, end_date, dataframe):
+    feed = []
+    for s in tqdm(stock_list):
+        feed.append(Addmoredata(dataname=get_stock_data(s, list_factor, dataframe), plot=False, fromdate=start_date,
+                       todate=end_date))
+    # cerebro.adddata(feed, s)
+    # print('success')
+    return feed, stock_list
+
+def split_list(lst, n):
+    return (lst[i::n] for i in range(n))
 
 
 if __name__ == '__main__':
@@ -539,14 +626,15 @@ if __name__ == '__main__':
 
     # sgdr = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
     sgdr_long_term_revenue = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
-    sgdr = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_huber'))
+    LSTM = load_model(get_new_pkl(file_dir='../workplace/', model_for_what='LSTM'),
+                      custom_objects={'r_square_oos': r_square_oos})
     # sgdr_long_term_revenue = joblib.load(filename=get_new_pkl(file_dir='../workplace/', model_for_what='1days_sgdr_long'))
 
     # csv文件的版本号
-    index = 'V1_2015-202207year'
+    index = 'V1_202206-0913year'
     # 起始日期
-    start_date = datetime.datetime(2022, 1, 1)
-    end_date = datetime.datetime(2022, 7, 29)
+    start_date = datetime.datetime(2022, 6, 1)
+    end_date = datetime.datetime(2022, 9, 13)
     # benchmark股票
     # bench_stock = '000001.XSHG'
 
@@ -561,13 +649,20 @@ if __name__ == '__main__':
 
     # 获取已清洗好的全A股所有数据
     df_all_0 = pd.read_csv(csv_name2)
+    print(df_all_0)
+    begin_time1 = time.time()
     df_all = treat_df(df_all_0)
+    end_time1 = time.time()
+    print('数据预处理共用时:',end_time1-begin_time1)
+    print(df_all)
     df_all['datetime'] = pd.to_datetime(df_all['datetime'], format='%Y-%m-%d', errors='coerce')
     basic_information = ['code', 'datetime', 'open', 'close', 'high', 'low', 'volume', 'money', 'high_limit',
                          'low_limit', 'avg', 'pre_close']
     list_factor = df_all.columns.to_list()[12:]
     columns = basic_information + list_factor
     df_all.columns = columns
+
+
 
     cerebro = bt.Cerebro(stdstats=False)
     cerebro.broker = bt.brokers.BackBroker(shortcash=True)  # 0.5%的滑点
@@ -576,22 +671,40 @@ if __name__ == '__main__':
     comminfo = stampDutyCommissionScheme(stamp_duty=0, commission=0)
     cerebro.broker.addcommissioninfo(comminfo)
     lines, params = add_parameters(columns[7:])
-    print(      (lines),
-        (params))
-    # # 多线程加速
-    # pool = multiprocessing.Pool(10)
-    for s in stocklist_allA:
-        feed = Addmoredata(dataname=get_stock_data(s, factor_list=list_factor), plot=False,
-                           fromdate=start_date, todate=end_date)
+    print((lines), (params))
 
-        # pool.apply_async(func=cerebro.adddata,args=[feed,s])
-        cerebro.adddata(feed, name=s)
+
+    begin_time2 = time.time()
+    for s in stocklist_allA:
+        feed = Addmoredata(dataname=get_stock_data(s, list_factor, df_all), plot=False,
+                           fromdate=start_date, todate=end_date)
+        # #
+        cerebro.adddata(feed, s)
+    # 多进程加速
+
+    # feed_list = []
+    # pool = multiprocessing.Pool(7)  # 创建一个7个进程的进程池
+    # for s in split_list(stocklist_allA,7):
+    #     feed_list.append(pool.apply_async(func=add_data, args=(s, list_factor, start_date, end_date, df_all,)))
+    #
     # pool.close()
     # pool.join()
+    #
+    # for result in tqdm(feed_list):
+    #     part_res = result.get()
+    #     print(1)
+    #     print(len(part_res[0]))
+    #     for i in range(len(part_res[0])):
+    #         cerebro.adddata(part_res[0][i],part_res[1][i])
+
+
+
+    end_time2 = time.time()
+    print('读取数据用时：', end_time2 - begin_time2)
 
     cerebro.broker.setcash(2000000.0)
     # 防止下单时现金不够被拒绝。只在执行时检查现金够不够。
-    cerebro.broker.set_checksubmit(False)
+    cerebro.broker.set_checksubmit(True)
     # 添加相应的费用，杠杆率
     # 获取策略运行的指标
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
@@ -615,10 +728,10 @@ if __name__ == '__main__':
     # 输出分析器结果字典
     # 保存模型
     save_time = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M")
-    filename = "../workplace/3days_sgdr_" + loss_model + '_' + save_time + '.pkl'  # 未注明具体调仓周期者，调仓周期为2天
-    filename2 = "../workplace/3days_sgdr_long_" + loss_model + '_' + save_time + '.pkl'
-    joblib.dump(sgdr, filename)
-    joblib.dump(sgdr_long_term_revenue, filename2)
+    filename = "../workplace/1day_LSTM_" + loss_model + '_' + save_time + '.h5'  # 未注明具体调仓周期者，调仓周期为2天
+    # filename2 = "../workplace/3days_sgdr_long_" + loss_model + '_' + save_time + '.pkl'
+    LSTM.save(filename)
+    # joblib.dump(sgdr_long_term_revenue, filename2)
 
     print('Sharpe Ratio:', thestrat.analyzers.sharp_ratio.get_analysis())
     print('DrawDown:', thestrat.analyzers.drawdown.get_analysis())

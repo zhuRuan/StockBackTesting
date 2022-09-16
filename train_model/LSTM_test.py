@@ -1,13 +1,14 @@
 # %%
 import pandas as pd
 from stock_backtesting_data.handle_df import treat_df
+from data.data_size_handle import reduce_mem_usage
 # 核心代码，设置显示的最大列、宽等参数，消掉打印不完全中间的省略号
 from sklearn.model_selection import train_test_split
 
 pd.set_option('display.max_columns', 1000)
 pd.set_option('display.width', 1000)
 pd.set_option('display.max_colwidth', 1000)
-
+import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import keras
@@ -18,8 +19,10 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras import backend as K
 from keras.layers import LSTM, Dense, Dropout
+from keras.models import load_model
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from math import sqrt
+from FactorTesting.BackTrader_Multifactors_stock import get_new_pkl
 
 @tf.autograph.experimental.do_not_convert
 def r_square_oos(y_true, y_pred):
@@ -81,13 +84,18 @@ def mad(factor):
 
 # %%
 
-csv_name2 = r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\V1_2015-202207year_final_data.csv'  # 股票数据
-csv_name3 = r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\V1_2020year01-12_stock_data.csv'
-df_all0 = pd.read_csv(csv_name2)
+
+# csv_name3 = r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\V1_2020year01-12_stock_data.csv'
+df_all0,nan_list = reduce_mem_usage(pd.read_csv('data_stocks/V1_pro_final/2022_all_stocks_04-08/V1_2021-20220805year_final_data.csv'))
 # %%
 df_all = treat_df(df_all0)
 # df_all2 = treat_df(pd.read_csv(csv_name3))
 # df_all = pd.concat([df_all, df_all2])
+# %%
+# print(df_all0)
+print(len(df_all.columns.to_list()))
+LSTM = load_model(get_new_pkl(file_dir='workplace/', model_for_what='LSTM'),
+                      custom_objects={'r_square_oos': r_square_oos})
 
 # %%
 plt.hist(x=df_all['earn_rate'],  # 指定绘图数据
@@ -105,7 +113,7 @@ print(df_all[ 'earn_rate'])
 values = df_all.values
 
 # 确保所有数据为float类型
-values = values.astype('float32')
+# values = values.astype('float32')
 print(values.shape)
 
 # 将时间序列转换为监督学习问题
@@ -166,7 +174,7 @@ print(train_y)
 
 # %%
 # 搭建LSTM模型
-callback = keras.callbacks.EarlyStopping(monitor='val_loss', patience=100)  # 使用loss作为监测数据，轮数设置为10
+callback = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)  # 使用loss作为监测数据，轮数设置为10
 model = Sequential()
 model.add(LSTM(units=200, input_shape=(train_X.shape[1], train_X.shape[2]), return_sequences=True,
                kernel_regularizer=keras.regularizers.l1(0.001), activation='relu'))
@@ -177,10 +185,16 @@ keras.optimizers.Adam(lr=0.005)
 model.compile(loss=r_square_oos, optimizer='adam')
 
 # fit network
-history = model.fit(train_X, train_y, epochs=30, batch_size=100, validation_data=(test_X, test_y),
+history = model.fit(train_X, train_y, epochs=300, batch_size=10000, validation_data=(test_X, test_y),
                     verbose=1, shuffle=True, use_multiprocessing=True, workers=10,
                     callbacks=callback)
+
 # %%
+# 保存模型
+save_time = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M")
+filename = "workplace/1day_LSTM_" + 'r_square_oos' + '_' + save_time + '.h5'  # 未注明具体调仓周期者，调仓周期为2天
+# filename2 = "../workplace/3days_sgdr_long_" + loss_model + '_' + save_time + '.pkl'
+LSTM.save(filename)
 # 绘制损失图
 plt.plot(history.history['loss'], label='train')
 plt.plot(history.history['val_loss'], label='test')
