@@ -22,6 +22,7 @@ from sklearn.preprocessing import MinMaxScaler
 from keras import backend as K
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, median_absolute_error, \
     explained_variance_score
+from data.data_size_handle import reduce_mem_usage
 
 
 def r_square_oos(y_true, y_pred):
@@ -83,22 +84,35 @@ def mad(factor):
 
 
 # %%
+#我也不知道为啥这里的相对位置不用加../
+df_all1,nan_list1 = reduce_mem_usage(pd.read_csv('data_stocks/V1_2021-20220805year_final_data.csv'))
+# df_all2,nan_list2 = reduce_mem_usage(pd.read_csv('data_stocks/V1_2021-20220805year_final_data.csv'))
 
-csv_name2 = r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\V1_2015-202207year_final_data.csv'  # 股票数据
-csv_name3 = r'D:\Ruiwen\PythonProject\StockBackTesting\data_stocks\V1_2020year01-12_stock_data.csv'
-df_all1 = (pd.read_csv(csv_name2))
+# %%
 df_all1['date_parsed'] = pd.to_datetime(df_all1['datetime'],format='%Y-%m-%d')
 df_all1 = df_all1[df_all1['date_parsed']<datetime.datetime.strptime('2022-01-01','%Y-%m-%d')]
 del df_all1['date_parsed']
+# df_all2['date_parsed'] = pd.to_datetime(df_all2['datetime'],format='%Y-%m-%d')
+# df_all2 = df_all2[df_all2['date_parsed']<datetime.datetime.strptime('2022-01-01','%Y-%m-%d')]
+# del df_all2['date_parsed']
 
 # %%
-df_all = treat_df(df_all1)
-# df_all2 = treat_df(pd.read_csv(csv_name3))
-# df_all = pd.concat([df_all, df_all2])
+for column in df_all1.columns.to_list():
+    if column not in df_all2.columns.to_list():
+        print(column)
+df_all1.columns = df_all2.columns
+# %%
+df_1 = treat_df(df_all1)
+# df_2 = treat_df(df_all2)
+# df_all = pd.concat([df_1, df_2])
+# %%
+for column in df_1.columns.to_list()[:len(df_1.columns.to_list()) - 1]:
+    # print(df_1.loc[df_1[column].isin([np.nan]).index.to_list(), column])
+    print(df_1[column])
 
 # %%
-plt.hist(x=df_all['earn_rate'],  # 指定绘图数据
-         bins=100,  # 指定直方图中条块的个数
+plt.hist(x=df_1['earn_rate'],  # 指定绘图数据
+         bins=10,  # 指定直方图中条块的个数
          color='steelblue',  # 指定直方图的填充色
          edgecolor='black'  # 指定直方图的边框色
          )
@@ -106,22 +120,27 @@ plt.xlabel('earn_rate')
 plt.title('收益率分布')
 plt.show()
 # %%
-
+df_all = df_1
 
 # 获取DataFrame中的数据，形式为数组array形式
 values = df_all.values
+print(values)
 
-# 确保所有数据为float类型
-values = values.astype('float32')
-print(values.shape)
+# # 确保所有数据为float类型
+# values = values.astype('float32')
+# print(values.shape)
 
 # 将时间序列转换为监督学习问题
 reframed = series_to_supervised(values, 1, 1)
 print(reframed.shape)
+print(reframed)
+
+# %%
 # 删除不想预测的特征列，这里只预测收益率
 drop_list = []
 for i in range(len(df_all.columns.to_list()), len(df_all.columns.to_list()) * 2 - 1):
     drop_list.append(i)
+print(drop_list)
 reframed.drop(reframed.columns[drop_list], axis=1, inplace=True)
 # 打印数据的前5行
 # print(reframed)
@@ -162,8 +181,8 @@ plt.show()
 print(train_X.shape)
 print(train_y.shape)
 loss_model = 'huber'
-sgdr = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
-# sgdr = SVR(kernel="rbf", C=100, gamma="auto", degree=3, epsilon=0.1, coef0=1)
+# sgdr = SGDRegressor(loss=loss_model, penalty='l2', learning_rate='adaptive')
+sgdr = SVR(kernel="rbf", C=100, gamma="auto", degree=3, epsilon=0.1, coef0=1)
 # sgdr = SVR()
 # %%
 
