@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 
-auth('18620290503', 'gxqh2019')
 
 #申万一级行业因子
 '''SW1_industry = ['801010','801020','801030','801040','801050','801060','801070','801080'
