@@ -21,7 +21,6 @@ def load_price(sec, start, end):
     df.to_csv(csv_name, mode='a+')
 
 
-auth('18620290503', 'gxqh2019')
 
 #打印当前剩余多少条请求
 print(get_query_count())
