@@ -2,7 +2,7 @@ from jqdatasdk import *
 import pandas as pd
 from datetime import datetime, timedelta
 
-auth('18620290503', 'gxqh2019')
+
 
 print(get_query_count())
 
